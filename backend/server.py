@@ -6,7 +6,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from pdw_sim import pdw_stream
+from backend.pdw_sim import pdw_stream
 
 BASE_DIR = Path(__file__).resolve().parent
 WEB_DIR  = BASE_DIR.parent / "web"
