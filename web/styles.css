@@ -1,0 +1,150 @@
+:root{
+  --bg:#0A0A0A;
+  --panel:#121212;
+  --panel2:#1A1A1A;
+  --grid:#333;
+  --green:#00FF00;
+  --green2:#00AA00;
+  --btn:#1A3A1A;
+}
+
+html, body{
+  height:100%;
+  margin:0;
+  overflow:hidden;
+}
+
+body{
+  background:var(--bg);
+  color:var(--green);
+  font-family:"Courier New", monospace;
+}
+
+.app{
+  height:100vh;
+  display:grid;
+  grid-template-rows: 46px 1fr 40px;
+  background:var(--bg);
+}
+
+.top_bar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 14px;
+  border-bottom:1px solid var(--green);
+  background:var(--bg);
+  color:var(--green);
+  font-weight:bold;
+}
+.top_left{ font-size:16px; }
+.top_right{ font-size:16px; }
+
+.main{
+  display:grid;
+  grid-template-columns: 3fr 1fr;
+  gap:12px;
+  padding:12px;
+  min-height:0;
+}
+
+.left{
+  display:grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap:12px;
+  min-height:0;
+}
+
+.right{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  min-height:0;
+}
+
+.panel{
+  background:var(--panel);
+  border:1px solid var(--green);
+  padding:10px;
+  box-sizing:border-box;
+}
+
+.panel h2{
+  margin:0 0 10px 0;
+  font-size:18px;
+  font-weight:bold;
+  color:var(--green);
+}
+
+.table_panel{
+  flex:1;
+  min-height:0;
+}
+
+.table_wrap{
+  height: calc(100% - 34px);
+  overflow:auto;
+}
+
+button{
+  background:var(--btn);
+  border:2px solid var(--green);
+  color:var(--green);
+  padding:10px;
+  font-weight:bold;
+  cursor:pointer;
+}
+button:hover{ background:var(--green); color:#000; }
+.control-btn:hover{color: #FFFFFF !important;}
+
+table{
+  width:100%;
+  border-collapse:collapse;
+  background:var(--panel);
+  color:var(--green);
+}
+thead th{
+  background:var(--panel2);
+  border:1px solid var(--grid);
+  padding:8px;
+}
+tbody td{
+  border:1px solid var(--grid);
+  padding:6px;
+  font-size:13px;
+}
+
+.plot{
+  background:var(--panel);
+  border:1px solid var(--green);
+  padding:6px;
+  width:100%;
+  height:100%;
+  box-sizing:border-box;
+  min-height:0;
+}
+.plot > div,
+.plot .js-plotly-plot,
+.plot .plot-container,
+.plot .svg-container{
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.bottom_bar{
+  display:flex;
+  align-items:center;
+  padding:0 14px;
+  border-top:1px solid var(--green);
+  background:var(--panel2);
+  color:var(--green2);
+  font-size:12px;
+}
+
+@media (max-width: 1400px){
+  .left{
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+  }
+}

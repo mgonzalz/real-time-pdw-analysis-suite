@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>NG-ESM Strategic Analysis Console</title>
+  <link rel="stylesheet" href="/web/styles.css"/>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+
+<body>
+  <div class="app">
+
+    <div class="top_bar">
+      <div class="top_left">NG-ESM STRATEGIC ANALYSIS CONSOLE</div>
+      <div class="top_right">APT</div>
+    </div>
+
+    <div class="main">
+      <div class="left">
+        <div id="plot_pri" class="plot"></div>
+        <div id="plot_am"  class="plot"></div>
+        <div id="plot_fm"  class="plot"></div>
+        <div id="plot_pw"  class="plot"></div>
+        <div id="plot_aoa" class="plot"></div>
+        <div id="plot_fp"  class="plot"></div>
+      </div>
+
+      <div class="right">
+        <div class="panel table_panel">
+          <h2>REAL-TIME PDW FEED</h2>
+          <div class="table_wrap">
+            <table>
+              <thead>
+                <tr><th>TOA (us)</th><th>Freq (MHz)</th><th>TrackID</th></tr>
+              </thead>
+              <tbody id="pdw_rows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <button id="btn_snapshot">📷 GENERATE NG-PDW SNAPSHOT</button>
+      </div>
+    </div>
+
+    <div class="bottom_bar">SYSTEM STATUS: NOMINAL</div>
+		<button id="btn_pause" class="control-btn">⏸ PAUSE</button>
+
+  </div>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>

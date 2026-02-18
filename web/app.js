@@ -1,0 +1,159 @@
+const ws = new WebSocket(`ws://${location.host}/ws/pdw`);
+const buffer = [];
+const MAX_BUF = 1000;
+
+const rowsEl = document.getElementById("pdw_rows");
+const btn = document.getElementById("btn_snapshot");
+
+const PLOT_CONFIG = { displayModeBar: true, responsive: true };
+
+function baseLayout(title, ytitle){
+  return {
+    title: {text: title, font:{family:"Courier New", color:"#00FF00"}},
+    paper_bgcolor:"#0A0A0A",
+    plot_bgcolor:"#121212",
+    font:{family:"Courier New", color:"#00FF00"},
+    xaxis:{title:"TOA (us)", gridcolor:"#333", zerolinecolor:"#333"},
+    yaxis:{title:ytitle, gridcolor:"#333", zerolinecolor:"#333"},
+    margin:{l:55,r:15,t:35,b:40},
+    showlegend:false,
+    autosize:true,
+    uirevision:"LOCK_UI"
+  };
+}
+
+function initPlots(){
+  Plotly.newPlot("plot_pri", [{x:[], y:[], mode:"markers", marker:{size:5}}], baseLayout("PRI (us)","PRI (us)"), PLOT_CONFIG);
+  Plotly.newPlot("plot_am",  [{x:[], y:[], mode:"markers", marker:{size:5}}], baseLayout("AM (dBm)","AM (dBm)"), PLOT_CONFIG);
+  Plotly.newPlot("plot_fm",  [{x:[], y:[], mode:"markers", marker:{size:5}}], baseLayout("FM (MHz)","FM (MHz)"), PLOT_CONFIG);
+  Plotly.newPlot("plot_pw",  [{x:[], y:[], mode:"markers", marker:{size:5}}], baseLayout("PW (us)","PW (us)"), PLOT_CONFIG);
+  Plotly.newPlot("plot_aoa", [{x:[], y:[], mode:"markers", marker:{size:5}}], baseLayout("AOA (deg)","AOA (deg)"), PLOT_CONFIG);
+  Plotly.newPlot("plot_fp",  [{x:[], y:[], mode:"lines"}],               baseLayout("Fingerprint (Rising Edge)","Power"), PLOT_CONFIG);
+}
+initPlots();
+
+const btnPause = document.getElementById("btn_pause");
+let isPaused = false;
+
+ws.onmessage = (ev) => {
+  if (isPaused) return;
+
+  const msg = JSON.parse(ev.data);
+  if(msg.type !== "pdw_batch") return;
+
+  for(const p of msg.data){
+    buffer.push(p);
+    if(buffer.length > MAX_BUF) buffer.shift();
+  }
+};
+
+btnPause.onclick = () => {
+  isPaused = !isPaused;
+
+  if (isPaused) {
+    btnPause.textContent = "▶ LIVE";
+    btnPause.style.borderColor = "#FF5555";
+    btnPause.style.color = "#FF5555";
+  } else {
+    btnPause.textContent = "⏸ PAUSE";
+    btnPause.style.borderColor = "#00FF00";
+    btnPause.style.color = "#00FF00";
+  }
+};
+
+
+function render(){
+  if(buffer.length === 0) return;
+
+  const toas = buffer.map(p=>p.TOA);
+  const pris = buffer.map(p=>p.PRI);
+  const ams  = buffer.map(p=>p.AM);
+  const fms  = buffer.map(p=>p.FM);
+  const pws  = buffer.map(p=>p.PW);
+  const aoas = buffer.map(p=>p.AOA);
+  const cols = buffer.map(p=>p.Color);
+
+  Plotly.update("plot_pri", { x:[toas], y:[pris], "marker.color":[cols] });
+  Plotly.update("plot_am",  { x:[toas], y:[ams],  "marker.color":[cols] });
+  Plotly.update("plot_fm",  { x:[toas], y:[fms],  "marker.color":[cols] });
+  Plotly.update("plot_pw",  { x:[toas], y:[pws],  "marker.color":[cols] });
+  Plotly.update("plot_aoa", { x:[toas], y:[aoas], "marker.color":[cols] });
+
+  const last = buffer.slice(-20).reverse();
+  rowsEl.innerHTML = "";
+  for(const p of last){
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${p.TOA.toFixed(1)}</td>
+      <td>${p.Freq.toFixed(1)}</td>
+      <td style="color:${p.Color}">T-${p.TrackID}</td>
+    `;
+    rowsEl.appendChild(tr);
+  }
+
+  const lastp = buffer[buffer.length-1];
+  const t = Array.from({length:100}, (_,i)=> (i/99)*0.5);
+  const amp = Math.pow(10, lastp.AM/20);
+  const y = t.map(tt => (1/(1+Math.exp(-20*(tt-0.2)))) * amp);
+
+  Plotly.update("plot_fp", { x:[t], y:[y] });
+}
+
+setInterval(render, 50);
+
+btn.onclick = () => {
+  btn.textContent = "✓ SAVING...";
+
+  const ts = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const timestamp =
+    ts.getFullYear() + pad(ts.getMonth()+1) + pad(ts.getDate()) + "_" +
+    pad(ts.getHours()) + pad(ts.getMinutes()) + pad(ts.getSeconds());
+
+  const clean = buffer.map(p => {
+    const c = {...p};
+    delete c.Color;
+    return c;
+  });
+
+  const snapshot = {
+    metadata: {
+      version: "NG-PDW-1.0",
+      timestamp: timestamp,
+      sensor_id: "ESM-SENTRY-01",
+      pulse_count: clean.length
+    },
+    pdws: clean
+  };
+
+  const filename = `ng_pdw_snapshot_${timestamp}.json`;
+  const blob = new Blob([JSON.stringify(snapshot, null, 4)], { type: "application/json" });
+
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+
+  btn.textContent = `✓ SAVED: ${filename}`;
+  setTimeout(() => btn.textContent = "📷 GENERATE NG-PDW SNAPSHOT", 2000);
+};
+
+function resizeAll(){
+  ["plot_pri","plot_am","plot_fm","plot_pw","plot_aoa","plot_fp"].forEach(id=>{
+    const el = document.getElementById(id);
+    if (el) Plotly.Plots.resize(el);
+  });
+}
+window.addEventListener("resize", resizeAll);
+setTimeout(resizeAll, 250);
+function sizedLayout(elId, title, ytitle){
+  const el = document.getElementById(elId);
+  const r = el.getBoundingClientRect();
+  const layout = baseLayout(title, ytitle);
+  layout.width  = Math.max(10, Math.floor(r.width));
+  layout.height = Math.max(10, Math.floor(r.height));
+  return layout;
+}
