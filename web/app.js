@@ -106,25 +106,25 @@ function render(){
 setInterval(render, 50);
 
 btn.onclick = async () => {
-  btn.textContent = "✓ EXPORTING...";
+  btn.textContent = "✓ EXPORTING PDF...";
 
-  // timestamp
+  const EXPORT_MAX = 500;
+  const exportBuf = buffer.slice(-EXPORT_MAX);
+
+  if (exportBuf.length === 0) {
+    btn.textContent = "✗ NO DATA";
+    setTimeout(() => btn.textContent = "📷 GENERATE NG-PDW SNAPSHOT", 1500);
+    return;
+  }
+
   const ts = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   const timestamp =
     ts.getFullYear() + pad(ts.getMonth()+1) + pad(ts.getDate()) + "_" +
     pad(ts.getHours()) + pad(ts.getMinutes()) + pad(ts.getSeconds());
 
-  // clean pdws (remove Color)
-  const clean = buffer.map(p => {
-    const c = {...p};
-    delete c.Color;
-    return c;
-  });
-
-  // -------- summary metrics (simple but useful)
   const byTrack = {};
-  for (const p of buffer) {
+  for (const p of exportBuf) {
     const id = p.TrackID;
     if (!byTrack[id]) byTrack[id] = [];
     byTrack[id].push(p);
@@ -133,149 +133,85 @@ btn.onclick = async () => {
   function stats(arr, key){
     const v = arr.map(x => x[key]).filter(x => Number.isFinite(x));
     if (!v.length) return null;
-    const min = Math.min(...v);
-    const max = Math.max(...v);
     const mean = v.reduce((a,b)=>a+b,0)/v.length;
     const std = Math.sqrt(v.reduce((a,b)=>a+(b-mean)*(b-mean),0)/v.length);
-    return {count:v.length, min, max, mean, std};
+    return {count:v.length, mean, std};
   }
 
-  // PRI jitter per track: std of PRI
-  const trackSummary = {};
-  for (const [id, arr] of Object.entries(byTrack)) {
-    trackSummary[id] = {
+  const trackRows = Object.entries(byTrack).map(([id, arr]) => {
+    const pri = stats(arr, "PRI");
+    const fq  = stats(arr, "Freq");
+    const aoa = stats(arr, "AOA");
+    return {
+      id: `T-${id}`,
       pulses: arr.length,
-      PRI: stats(arr, "PRI"),
-      Freq: stats(arr, "Freq"),
-      AM: stats(arr, "AM"),
-      FM: stats(arr, "FM"),
-      PW: stats(arr, "PW"),
-      AOA: stats(arr, "AOA"),
+      freqMean: fq ? fq.mean : null,
+      aoaMean: aoa ? aoa.mean : null,
+      priJitter: pri ? pri.std : null,
     };
-  }
+  }).sort((a,b)=>a.id.localeCompare(b.id));
 
-  const summary = {
-    version: "NG-PDW-1.0",
-    timestamp,
-    sensor_id: "ESM-SENTRY-01",
-    pulse_count: clean.length,
-    tracks: trackSummary
-  };
-
-  // -------- export plot images (Plotly -> PNG)
-  async function grabPlotPng(divId){
+  async function grabPlot(divId){
     const node = document.getElementById(divId);
-    // scale 2 for sharpness
-    return await Plotly.toImage(node, {format:"png", scale:2});
+    return await Plotly.toImage(node, { format:"jpeg", scale: 1, quality: 0.7 });
   }
 
-  const plotIds = [
-    ["plot_pri","pri.png"],
-    ["plot_am","am.png"],
-    ["plot_fm","fm.png"],
-    ["plot_pw","pw.png"],
-    ["plot_aoa","aoa.png"],
-    ["plot_fp","fingerprint.png"],
-  ];
+  const imgPRI  = await grabPlot("plot_pri");
+  const imgFREQ = await grabPlot("plot_fm");
+  const imgAOA  = await grabPlot("plot_aoa");
 
-  // Collect images (base64 data URLs)
-  const images = {};
-  for (const [id, fname] of plotIds) {
-    images[fname] = await grabPlotPng(id);
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+  pdf.setTextColor(0, 255, 0);
+  pdf.setFont("courier", "bold");
+  pdf.setFontSize(14);
+  pdf.text("NG-PDW SNAPSHOT REPORT", 12, 10);
+  pdf.setFontSize(10);
+  pdf.setFont("courier", "normal");
+  pdf.text(`Timestamp: ${timestamp} | Sensor: ESM-SENTRY-01 | Pulses: ${exportBuf.length}`, 12, 16);
+
+  const x0 = 10, y0 = 22;
+  const w = 90, h = 55;
+
+  pdf.addImage(imgPRI,  "JPEG", x0,            y0, w, h);
+  pdf.addImage(imgFREQ, "JPEG", x0 + w + gap,  y0, w, h);
+  pdf.addImage(imgAOA,  "JPEG", x0 + 2*(w+gap),y0, w, h);
+
+  const tableY = y0 + h + 10;
+  pdf.setFont("courier", "bold");
+  pdf.text("TRACK SUMMARY", 12, tableY);
+  pdf.setFont("courier", "normal");
+
+  let y = tableY + 6;
+  pdf.setFontSize(9);
+  pdf.text("Track", 12, y);
+  pdf.text("Pulses", 35, y);
+  pdf.text("Freq mean (MHz)", 60, y);
+  pdf.text("AOA mean (deg)", 110, y);
+  pdf.text("PRI jitter (std, us)", 160, y);
+
+  y += 5;
+  pdf.setDrawColor(0,255,0);
+  pdf.line(12, y, 285, y);
+  y += 5;
+
+  for (const r of trackRows) {
+    if (y > 200) break;
+    pdf.text(r.id, 12, y);
+    pdf.text(String(r.pulses), 35, y);
+    pdf.text(r.freqMean != null ? r.freqMean.toFixed(2) : "-", 60, y);
+    pdf.text(r.aoaMean  != null ? r.aoaMean.toFixed(2)  : "-", 110, y);
+    pdf.text(r.priJitter!= null ? r.priJitter.toFixed(3): "-", 160, y);
+    y += 5;
   }
 
-  // -------- Build report.html (simple, readable)
-  const trackRows = Object.entries(trackSummary).map(([id, t]) => {
-    const priJ = t.PRI ? t.PRI.std : null;
-    const aoaM = t.AOA ? t.AOA.mean : null;
-    const fM   = t.Freq ? t.Freq.mean : null;
-    return `
-      <tr>
-        <td>T-${id}</td>
-        <td>${t.pulses}</td>
-        <td>${fM?.toFixed(2) ?? "-"}</td>
-        <td>${aoaM?.toFixed(2) ?? "-"}</td>
-        <td>${priJ?.toFixed(3) ?? "-"}</td>
-      </tr>`;
-  }).join("");
+  pdf.setFontSize(9);
+  pdf.setTextColor(0,170,0);
+  pdf.text("SYSTEM STATUS: NOMINAL", 12, 206);
+  pdf.save(`ng_pdw_snapshot_${timestamp}.pdf`);
 
-  const reportHtml = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <title>NG-PDW Snapshot Report ${timestamp}</title>
-  <style>
-    body{background:#0A0A0A;color:#00FF00;font-family:Courier New, monospace;margin:20px;}
-    h1,h2{margin:0 0 10px 0;}
-    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px;}
-    .card{border:1px solid #00FF00;background:#121212;padding:10px;}
-    img{width:100%;height:auto;border:1px solid #333;}
-    table{width:100%;border-collapse:collapse;margin-top:10px;}
-    th,td{border:1px solid #333;padding:8px;text-align:left;}
-    th{background:#1A1A1A;}
-    .muted{color:#00AA00;font-size:12px;}
-  </style>
-</head>
-<body>
-  <h1>NG-PDW Snapshot Report</h1>
-  <div class="muted">Timestamp: ${timestamp} | Sensor: ESM-SENTRY-01 | Pulses: ${clean.length}</div>
-
-  <h2 style="margin-top:16px;">Track Summary</h2>
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>Track</th><th>Pulses</th><th>Freq mean (MHz)</th><th>AOA mean (deg)</th><th>PRI jitter (std, us)</th>
-        </tr>
-      </thead>
-      <tbody>${trackRows}</tbody>
-    </table>
-    <div class="muted" style="margin-top:8px;">
-      PRI jitter (std) te indica estabilidad: bajo = emisor estable; alto = jitter/agilidad.
-    </div>
-  </div>
-
-  <h2 style="margin-top:16px;">Plots</h2>
-  <div class="grid">
-    ${plotIds.map(([,fname]) => `
-      <div class="card">
-        <div class="muted">${fname.replace(".png","").toUpperCase()}</div>
-        <img src="plots/${fname}" />
-      </div>
-    `).join("")}
-  </div>
-</body>
-</html>`;
-
-  // -------- Zip everything
-  const zip = new JSZip();
-
-  // JSONs
-  zip.file(`ng_pdw_snapshot_${timestamp}.json`, JSON.stringify({
-    metadata: {
-      version: "NG-PDW-1.0",
-      timestamp,
-      sensor_id: "ESM-SENTRY-01",
-      pulse_count: clean.length
-    },
-    pdws: clean
-  }, null, 4));
-
-  zip.file(`summary_${timestamp}.json`, JSON.stringify(summary, null, 4));
-  zip.file(`report_${timestamp}.html`, reportHtml);
-
-  // images folder
-  const imgFolder = zip.folder("plots");
-  for (const [fname, dataUrl] of Object.entries(images)) {
-    // data:image/png;base64,....
-    const base64 = dataUrl.split(",")[1];
-    imgFolder.file(fname, base64, {base64:true});
-  }
-
-  const blob = await zip.generateAsync({type:"blob"});
-  saveAs(blob, `ng_pdw_snapshot_${timestamp}.zip`);
-
-  btn.textContent = `✓ SAVED: ng_pdw_snapshot_${timestamp}.zip`;
+  btn.textContent = `✓ SAVED: ng_pdw_snapshot_${timestamp}.pdf`;
   setTimeout(() => btn.textContent = "📷 GENERATE NG-PDW SNAPSHOT", 2000);
 };
 
