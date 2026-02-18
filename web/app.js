@@ -157,7 +157,7 @@ btn.onclick = async () => {
   }
 
   const imgPRI  = await grabPlot("plot_pri");
-  const imgFREQ = await grabPlot("plot_fm");
+  const imgFM   = await grabPlot("plot_fm");
   const imgAOA  = await grabPlot("plot_aoa");
 
   const { jsPDF } = window.jspdf;
@@ -167,16 +167,18 @@ btn.onclick = async () => {
   pdf.setFont("courier", "bold");
   pdf.setFontSize(14);
   pdf.text("NG-PDW SNAPSHOT REPORT", 12, 10);
+
   pdf.setFontSize(10);
   pdf.setFont("courier", "normal");
   pdf.text(`Timestamp: ${timestamp} | Sensor: ESM-SENTRY-01 | Pulses: ${exportBuf.length}`, 12, 16);
 
   const x0 = 10, y0 = 22;
   const w = 90, h = 55;
+  const gap = 6;
 
-  pdf.addImage(imgPRI,  "JPEG", x0,            y0, w, h);
-  pdf.addImage(imgFREQ, "JPEG", x0 + w + gap,  y0, w, h);
-  pdf.addImage(imgAOA,  "JPEG", x0 + 2*(w+gap),y0, w, h);
+  pdf.addImage(imgPRI, "JPEG", x0,               y0, w, h);
+  pdf.addImage(imgFM,  "JPEG", x0 + (w + gap),   y0, w, h);
+  pdf.addImage(imgAOA, "JPEG", x0 + 2*(w + gap), y0, w, h);
 
   const tableY = y0 + h + 10;
   pdf.setFont("courier", "bold");
@@ -209,6 +211,7 @@ btn.onclick = async () => {
   pdf.setFontSize(9);
   pdf.setTextColor(0,170,0);
   pdf.text("SYSTEM STATUS: NOMINAL", 12, 206);
+
   pdf.save(`ng_pdw_snapshot_${timestamp}.pdf`);
 
   btn.textContent = `✓ SAVED: ng_pdw_snapshot_${timestamp}.pdf`;
