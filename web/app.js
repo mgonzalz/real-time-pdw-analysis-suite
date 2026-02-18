@@ -105,45 +105,180 @@ function render(){
 
 setInterval(render, 50);
 
-btn.onclick = () => {
-  btn.textContent = "✓ SAVING...";
+btn.onclick = async () => {
+  btn.textContent = "✓ EXPORTING...";
 
+  // timestamp
   const ts = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   const timestamp =
     ts.getFullYear() + pad(ts.getMonth()+1) + pad(ts.getDate()) + "_" +
     pad(ts.getHours()) + pad(ts.getMinutes()) + pad(ts.getSeconds());
 
+  // clean pdws (remove Color)
   const clean = buffer.map(p => {
     const c = {...p};
     delete c.Color;
     return c;
   });
 
-  const snapshot = {
+  // -------- summary metrics (simple but useful)
+  const byTrack = {};
+  for (const p of buffer) {
+    const id = p.TrackID;
+    if (!byTrack[id]) byTrack[id] = [];
+    byTrack[id].push(p);
+  }
+
+  function stats(arr, key){
+    const v = arr.map(x => x[key]).filter(x => Number.isFinite(x));
+    if (!v.length) return null;
+    const min = Math.min(...v);
+    const max = Math.max(...v);
+    const mean = v.reduce((a,b)=>a+b,0)/v.length;
+    const std = Math.sqrt(v.reduce((a,b)=>a+(b-mean)*(b-mean),0)/v.length);
+    return {count:v.length, min, max, mean, std};
+  }
+
+  // PRI jitter per track: std of PRI
+  const trackSummary = {};
+  for (const [id, arr] of Object.entries(byTrack)) {
+    trackSummary[id] = {
+      pulses: arr.length,
+      PRI: stats(arr, "PRI"),
+      Freq: stats(arr, "Freq"),
+      AM: stats(arr, "AM"),
+      FM: stats(arr, "FM"),
+      PW: stats(arr, "PW"),
+      AOA: stats(arr, "AOA"),
+    };
+  }
+
+  const summary = {
+    version: "NG-PDW-1.0",
+    timestamp,
+    sensor_id: "ESM-SENTRY-01",
+    pulse_count: clean.length,
+    tracks: trackSummary
+  };
+
+  // -------- export plot images (Plotly -> PNG)
+  async function grabPlotPng(divId){
+    const node = document.getElementById(divId);
+    // scale 2 for sharpness
+    return await Plotly.toImage(node, {format:"png", scale:2});
+  }
+
+  const plotIds = [
+    ["plot_pri","pri.png"],
+    ["plot_am","am.png"],
+    ["plot_fm","fm.png"],
+    ["plot_pw","pw.png"],
+    ["plot_aoa","aoa.png"],
+    ["plot_fp","fingerprint.png"],
+  ];
+
+  // Collect images (base64 data URLs)
+  const images = {};
+  for (const [id, fname] of plotIds) {
+    images[fname] = await grabPlotPng(id);
+  }
+
+  // -------- Build report.html (simple, readable)
+  const trackRows = Object.entries(trackSummary).map(([id, t]) => {
+    const priJ = t.PRI ? t.PRI.std : null;
+    const aoaM = t.AOA ? t.AOA.mean : null;
+    const fM   = t.Freq ? t.Freq.mean : null;
+    return `
+      <tr>
+        <td>T-${id}</td>
+        <td>${t.pulses}</td>
+        <td>${fM?.toFixed(2) ?? "-"}</td>
+        <td>${aoaM?.toFixed(2) ?? "-"}</td>
+        <td>${priJ?.toFixed(3) ?? "-"}</td>
+      </tr>`;
+  }).join("");
+
+  const reportHtml = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>NG-PDW Snapshot Report ${timestamp}</title>
+  <style>
+    body{background:#0A0A0A;color:#00FF00;font-family:Courier New, monospace;margin:20px;}
+    h1,h2{margin:0 0 10px 0;}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px;}
+    .card{border:1px solid #00FF00;background:#121212;padding:10px;}
+    img{width:100%;height:auto;border:1px solid #333;}
+    table{width:100%;border-collapse:collapse;margin-top:10px;}
+    th,td{border:1px solid #333;padding:8px;text-align:left;}
+    th{background:#1A1A1A;}
+    .muted{color:#00AA00;font-size:12px;}
+  </style>
+</head>
+<body>
+  <h1>NG-PDW Snapshot Report</h1>
+  <div class="muted">Timestamp: ${timestamp} | Sensor: ESM-SENTRY-01 | Pulses: ${clean.length}</div>
+
+  <h2 style="margin-top:16px;">Track Summary</h2>
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Track</th><th>Pulses</th><th>Freq mean (MHz)</th><th>AOA mean (deg)</th><th>PRI jitter (std, us)</th>
+        </tr>
+      </thead>
+      <tbody>${trackRows}</tbody>
+    </table>
+    <div class="muted" style="margin-top:8px;">
+      PRI jitter (std) te indica estabilidad: bajo = emisor estable; alto = jitter/agilidad.
+    </div>
+  </div>
+
+  <h2 style="margin-top:16px;">Plots</h2>
+  <div class="grid">
+    ${plotIds.map(([,fname]) => `
+      <div class="card">
+        <div class="muted">${fname.replace(".png","").toUpperCase()}</div>
+        <img src="plots/${fname}" />
+      </div>
+    `).join("")}
+  </div>
+</body>
+</html>`;
+
+  // -------- Zip everything
+  const zip = new JSZip();
+
+  // JSONs
+  zip.file(`ng_pdw_snapshot_${timestamp}.json`, JSON.stringify({
     metadata: {
       version: "NG-PDW-1.0",
-      timestamp: timestamp,
+      timestamp,
       sensor_id: "ESM-SENTRY-01",
       pulse_count: clean.length
     },
     pdws: clean
-  };
+  }, null, 4));
 
-  const filename = `ng_pdw_snapshot_${timestamp}.json`;
-  const blob = new Blob([JSON.stringify(snapshot, null, 4)], { type: "application/json" });
+  zip.file(`summary_${timestamp}.json`, JSON.stringify(summary, null, 4));
+  zip.file(`report_${timestamp}.html`, reportHtml);
 
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(a.href);
+  // images folder
+  const imgFolder = zip.folder("plots");
+  for (const [fname, dataUrl] of Object.entries(images)) {
+    // data:image/png;base64,....
+    const base64 = dataUrl.split(",")[1];
+    imgFolder.file(fname, base64, {base64:true});
+  }
 
-  btn.textContent = `✓ SAVED: ${filename}`;
+  const blob = await zip.generateAsync({type:"blob"});
+  saveAs(blob, `ng_pdw_snapshot_${timestamp}.zip`);
+
+  btn.textContent = `✓ SAVED: ng_pdw_snapshot_${timestamp}.zip`;
   setTimeout(() => btn.textContent = "📷 GENERATE NG-PDW SNAPSHOT", 2000);
 };
+
 
 function resizeAll(){
   ["plot_pri","plot_am","plot_fm","plot_pw","plot_aoa","plot_fp"].forEach(id=>{
