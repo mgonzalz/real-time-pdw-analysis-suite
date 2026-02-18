@@ -1,4 +1,8 @@
-const ws = new WebSocket(`ws://${location.host}/ws/pdw`);
+const WS_PROTO = (location.protocol === "https:") ? "wss" : "ws";
+const ws = new WebSocket(`${WS_PROTO}://${location.host}/ws/pdw`);
+ws.onopen  = () => console.log("[WS] connected", ws.url);
+ws.onerror = (e) => console.error("[WS] error", e);
+ws.onclose = (e) => console.warn("[WS] closed", e.code, e.reason);
 const buffer = [];
 const MAX_BUF = 1000;
 
