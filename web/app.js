@@ -106,25 +106,48 @@ function render(){
 setInterval(render, 50);
 
 btn.onclick = async () => {
-  btn.textContent = "✓ EXPORTING PDF...";
+  btn.textContent = "✓ EXPORTANDO...";
 
-  const EXPORT_MAX = 500;
-  const exportBuf = buffer.slice(-EXPORT_MAX);
-
-  if (exportBuf.length === 0) {
-    btn.textContent = "✗ NO DATA";
-    setTimeout(() => btn.textContent = "📷 GENERATE NG-PDW SNAPSHOT", 1500);
+  if (buffer.length === 0) {
+    btn.textContent = "✗ SIN DATOS";
+    setTimeout(() => btn.textContent = "📷 GENERAR SNAPSHOT NG-PDW", 1500);
     return;
   }
 
+  // Timestamp
   const ts = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   const timestamp =
     ts.getFullYear() + pad(ts.getMonth()+1) + pad(ts.getDate()) + "_" +
     pad(ts.getHours()) + pad(ts.getMinutes()) + pad(ts.getSeconds());
 
+    const clean = buffer.map(p => {
+    const c = {...p};
+    delete c.Color;
+    return c;
+  });
+
+  const snapshot = {
+    metadata: {
+      version: "NG-PDW-1.0",
+      timestamp,
+      sensor_id: "ESM-SENTRY-01",
+      pulse_count: clean.length
+    },
+    pdws: clean
+  };
+
+  const jsonBlob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" });
+  const jsonLink = document.createElement("a");
+  jsonLink.href = URL.createObjectURL(jsonBlob);
+  jsonLink.download = `ng_pdw_snapshot_${timestamp}.json`;
+  document.body.appendChild(jsonLink);
+  jsonLink.click();
+  jsonLink.remove();
+  URL.revokeObjectURL(jsonLink.href);
+
   const byTrack = {};
-  for (const p of exportBuf) {
+  for (const p of buffer) {
     const id = p.TrackID;
     if (!byTrack[id]) byTrack[id] = [];
     byTrack[id].push(p);
@@ -135,87 +158,97 @@ btn.onclick = async () => {
     if (!v.length) return null;
     const mean = v.reduce((a,b)=>a+b,0)/v.length;
     const std = Math.sqrt(v.reduce((a,b)=>a+(b-mean)*(b-mean),0)/v.length);
-    return {count:v.length, mean, std};
+    return { mean, std, count: v.length };
   }
 
-  const trackRows = Object.entries(byTrack).map(([id, arr]) => {
-    const pri = stats(arr, "PRI");
-    const fq  = stats(arr, "Freq");
-    const aoa = stats(arr, "AOA");
-    return {
-      id: `T-${id}`,
-      pulses: arr.length,
-      freqMean: fq ? fq.mean : null,
-      aoaMean: aoa ? aoa.mean : null,
-      priJitter: pri ? pri.std : null,
-    };
-  }).sort((a,b)=>a.id.localeCompare(b.id));
+  const resumen = Object.entries(byTrack)
+    .map(([id, arr]) => {
+      const pri = stats(arr, "PRI");
+      const fq  = stats(arr, "Freq");
+      const aoa = stats(arr, "AOA");
+      return {
+        pista: `T-${id}`,
+        pulsos: arr.length,
+        freq_media: fq ? fq.mean : null,
+        aoa_media: aoa ? aoa.mean : null,
+        jitter_pri: pri ? pri.std : null
+      };
+    })
+    .sort((a,b)=>a.pista.localeCompare(b.pista));
 
-  async function grabPlot(divId){
+    async function grabPlot(divId){
     const node = document.getElementById(divId);
-    return await Plotly.toImage(node, { format:"jpeg", scale: 1, quality: 0.7 });
+    return await Plotly.toImage(node, { format: "jpeg", scale: 1, quality: 0.8 });
   }
 
-  const imgPRI  = await grabPlot("plot_pri");
-  const imgFM   = await grabPlot("plot_fm");
-  const imgAOA  = await grabPlot("plot_aoa");
+  const plotIds = ["plot_pri","plot_am","plot_fm","plot_pw","plot_aoa","plot_fp"];
+  const images = [];
+  for (const id of plotIds) images.push(await grabPlot(id));
 
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
-  pdf.setTextColor(0, 255, 0);
-  pdf.setFont("courier", "bold");
-  pdf.setFontSize(14);
-  pdf.text("NG-PDW SNAPSHOT REPORT", 12, 10);
+  pdf.setTextColor(0, 0, 0);
 
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(16);
+  pdf.text("INFORME SNAPSHOT NG-PDW", 10, 10);
+
+  pdf.setFont("helvetica", "normal");
   pdf.setFontSize(10);
-  pdf.setFont("courier", "normal");
-  pdf.text(`Timestamp: ${timestamp} | Sensor: ESM-SENTRY-01 | Pulses: ${exportBuf.length}`, 12, 16);
+  pdf.text(`Fecha/Hora: ${timestamp}`, 10, 16);
+  pdf.text(`Sensor: ESM-SENTRY-01`, 10, 21);
+  pdf.text(`Total de pulsos: ${buffer.length}`, 10, 26);
 
-  const x0 = 10, y0 = 22;
-  const w = 90, h = 55;
-  const gap = 6;
+  pdf.setFont("helvetica", "bold");
+  pdf.text("Resumen por pista (TrackID)", 10, 33);
 
-  pdf.addImage(imgPRI, "JPEG", x0,               y0, w, h);
-  pdf.addImage(imgFM,  "JPEG", x0 + (w + gap),   y0, w, h);
-  pdf.addImage(imgAOA, "JPEG", x0 + 2*(w + gap), y0, w, h);
-
-  const tableY = y0 + h + 10;
-  pdf.setFont("courier", "bold");
-  pdf.text("TRACK SUMMARY", 12, tableY);
-  pdf.setFont("courier", "normal");
-
-  let y = tableY + 6;
+  let y = 38;
+  pdf.setFont("helvetica", "normal");
   pdf.setFontSize(9);
-  pdf.text("Track", 12, y);
-  pdf.text("Pulses", 35, y);
-  pdf.text("Freq mean (MHz)", 60, y);
-  pdf.text("AOA mean (deg)", 110, y);
-  pdf.text("PRI jitter (std, us)", 160, y);
 
-  y += 5;
-  pdf.setDrawColor(0,255,0);
-  pdf.line(12, y, 285, y);
+  pdf.text("Pista", 10, y);
+  pdf.text("Pulsos", 30, y);
+  pdf.text("Frec. media (MHz)", 55, y);
+  pdf.text("AOA media (°)", 105, y);
+  pdf.text("Jitter PRI (σ, µs)", 140, y);
+
+  y += 3;
+  pdf.setDrawColor(0,0,0);
+  pdf.line(10, y, 285, y);
   y += 5;
 
-  for (const r of trackRows) {
-    if (y > 200) break;
-    pdf.text(r.id, 12, y);
-    pdf.text(String(r.pulses), 35, y);
-    pdf.text(r.freqMean != null ? r.freqMean.toFixed(2) : "-", 60, y);
-    pdf.text(r.aoaMean  != null ? r.aoaMean.toFixed(2)  : "-", 110, y);
-    pdf.text(r.priJitter!= null ? r.priJitter.toFixed(3): "-", 160, y);
+  for (const r of resumen) {
+    if (y > 70) break;
+    pdf.text(r.pista, 10, y);
+    pdf.text(String(r.pulsos), 30, y);
+    pdf.text(r.freq_media != null ? r.freq_media.toFixed(2) : "-", 55, y);
+    pdf.text(r.aoa_media  != null ? r.aoa_media.toFixed(2)  : "-", 105, y);
+    pdf.text(r.jitter_pri != null ? r.jitter_pri.toFixed(3) : "-", 140, y);
     y += 5;
   }
 
-  pdf.setFontSize(9);
-  pdf.setTextColor(0,170,0);
-  pdf.text("SYSTEM STATUS: NOMINAL", 12, 206);
+  const x0 = 10;
+  const y0 = 75;
+  const w = 90;
+  const h = 50;
+  const gap = 7;
+
+  let idx = 0;
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 3; col++) {
+      if (idx >= images.length) break;
+      const x = x0 + col * (w + gap);
+      const yy = y0 + row * (h + gap);
+      pdf.addImage(images[idx], "JPEG", x, yy, w, h);
+      idx++;
+    }
+  }
 
   pdf.save(`ng_pdw_snapshot_${timestamp}.pdf`);
 
-  btn.textContent = `✓ SAVED: ng_pdw_snapshot_${timestamp}.pdf`;
-  setTimeout(() => btn.textContent = "📷 GENERATE NG-PDW SNAPSHOT", 2000);
+  btn.textContent = "✓ EXPORTADO";
+  setTimeout(() => btn.textContent = "📷 GENERAR SNAPSHOT NG-PDW", 2000);
 };
 
 
