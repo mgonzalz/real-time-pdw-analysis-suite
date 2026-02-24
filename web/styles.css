@@ -37,8 +37,29 @@ body{
   color:var(--green);
   font-weight:bold;
 }
-.top_left{ font-size:16px; }
-.top_right{ font-size:16px; }
+.top_left{ font-size:16px; flex:1; }
+.top_center{ 
+  flex:2; 
+  display:flex; 
+  justify-content:center; 
+  gap:10px;
+}
+.top_right{ font-size:16px; flex:1; text-align:right;}
+
+.view-btn{
+  background:transparent;
+  border:1px solid var(--green);
+  padding:4px 12px;
+  font-size:11px;
+  color:var(--green);
+}
+.view-btn.active{
+  background:var(--green);
+  color:#000;
+}
+.view-btn:hover:not(.active){
+  background:rgba(0, 255, 0, 0.1);
+}
 
 .main{
   display:grid;
